@@ -1,0 +1,35 @@
+{
+  "telegram": {
+    "api_id": 0,
+    "api_hash": "YOUR_API_HASH_HERE",
+    "phone_number": "+1234567890"
+  },
+  "api": {
+    "openai_key": "sk-...",
+    "openai_model": "gpt-4o-mini",
+    "gemini_key": "YOUR_GEMINI_KEY_HERE",
+    "gemini_model": "gemini-1.5-flash",
+    "timeout": 30
+  },
+  "database": {
+    "path": "telegrambot.db",
+    "session_dir": "pyrogram_sessions",
+    "backup_dir": "backups"
+  },
+  "ui": {
+    "theme": "Dark",
+    "window_width": 1200,
+    "window_height": 800,
+    "font_size": 10
+  },
+  "bot": {
+    "of_link": null
+  },
+  "cloudflare": {
+    "enabled": false,
+    "worker_url": "https://telegram-bot-api-keys.YOUR_NAME.workers.dev",
+    "auth_token": "your-secret-token-here",
+    "fallback_to_local": false,
+    "timeout": 10
+  }
+}

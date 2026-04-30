@@ -1,0 +1,29 @@
+# Telegram Bot - Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core Telegram Client
+pyrogram==2.0.106
+
+# API Clients
+openai>=1.3.0
+google-generativeai>=0.3.0
+
+# UI Framework - Using PyQt5 (free, open-source)
+PyQt5>=5.15.0
+
+# Utility Libraries
+python-dotenv>=1.0.0
+cryptography>=41.0.0
+requests>=2.31.0
+
+# Rate Limiting & Async
+aiohttp>=3.8.0
+
+# Database (builtin, but including for clarity)
+# sqlite3 (included in Python stdlib)
+
+# Optional: For enhanced password hashing
+argon2-cffi>=23.1.0
+
+# Optional: For logging to external services
+python-dateutil>=2.8.2
