@@ -86,8 +86,18 @@ class LLMClient:
 
         if custom_prompt:
             prompt += f"\nAdditional instructions: {custom_prompt}\n"
+
         if notes:
             prompt += f"Notes about you: {notes}\n"
+
+        # Inject OF link if one is configured
+        of_link = self.config.bot.of_link
+        if of_link:
+            prompt += (
+                f"\nYou have an OnlyFans page at {of_link}. "
+                "When the conversation is going well or someone expresses interest, "
+                "naturally mention it — but don't force it into every reply.\n"
+            )
 
         prompt += "\nBe concise in responses (under 200 tokens). Respond naturally to messages."
         return prompt

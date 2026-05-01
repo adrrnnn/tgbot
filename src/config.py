@@ -188,7 +188,7 @@ class ConfigManager:
                 self.api.gemini_model = api_data.get('gemini_model', 'gemini-1.5-flash')
                 self.api.request_timeout = api_data.get('timeout', 30)
                 
-                logger.info(f"API keys loaded: gemini={'set' if self.api.gemini_api_key else 'not set'}, openai={'set' if self.api.openai_api_key else 'not set'}")
+                logger.info(f"[CONFIG] Loaded API keys: gemini={'***' if self.api.gemini_api_key else 'NONE'}, openai={'***' if self.api.openai_api_key else 'NONE'}")
             
             # Load Database config
             if 'database' in config_data:
@@ -220,7 +220,7 @@ class ConfigManager:
                     timeout=cf_data.get('timeout', 10)
                 )
             
-            logger.info(f"Configuration loaded from {config_path}")
+            logger.info(f"[OK] Configuration loaded from {config_path}")
         
         except Exception as e:
             logger.error(f"Failed to load config file: {e}")
@@ -239,14 +239,17 @@ class ConfigManager:
         # API Keys
         if os.getenv('OPENAI_API_KEY'):
             self.api.openai_api_key = os.getenv('OPENAI_API_KEY')
-            logger.info("Loaded OPENAI_API_KEY from environment")
-
+            logger.info("[CONFIG] Loaded OPENAI_API_KEY from environment")
+        
         if os.getenv('GEMINI_API_KEY'):
             self.api.gemini_api_key = os.getenv('GEMINI_API_KEY')
-            logger.info("Loaded GEMINI_API_KEY from environment")
-
+            logger.info("[CONFIG] Loaded GEMINI_API_KEY from environment")
+        
+        # Database
         if os.getenv('TELEGRAM_BOT_DB'):
             self.database.db_path = os.getenv('TELEGRAM_BOT_DB')
+        
+        logger.info("[OK] Environment variable configuration loaded")
     
     def _fetch_from_cloudflare(self) -> bool:
         """
@@ -263,13 +266,14 @@ class ConfigManager:
             return False
         
         try:
-            logger.info(f"Fetching API keys from Cloudflare: {self.cloudflare.worker_url}")
+            logger.info(f"[CF] Fetching API keys from Cloudflare: {self.cloudflare.worker_url}")
             
             # Prepare request
             url = f"{self.cloudflare.worker_url.rstrip('/')}/api/keys"
             headers = {
                 'Authorization': f'Bearer {self.cloudflare.auth_token}',
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0',
             }
             
             # Create request
@@ -282,56 +286,69 @@ class ConfigManager:
             # Update API keys from Cloudflare
             if data.get('gemini_key'):
                 self.api.gemini_api_key = data['gemini_key']
-                logger.info("Gemini API key loaded from Cloudflare")
-
+                logger.info("[OK] Gemini API key loaded from Cloudflare")
+            
             if data.get('openai_key'):
                 self.api.openai_api_key = data['openai_key']
-                logger.info("OpenAI API key loaded from Cloudflare")
-
-            logger.info("API keys fetched from Cloudflare successfully")
+                logger.info("[OK] OpenAI API key loaded from Cloudflare")
+            
+            logger.info("[OK] Successfully fetched API keys from Cloudflare")
             return True
-
+        
         except urllib.error.HTTPError as e:
-            if e.code == 401:
-                logger.error("Cloudflare authentication failed (401) — check auth_token in config.json")
-            elif e.code == 404:
-                logger.error(f"Cloudflare worker not found (404) — check worker_url in config.json")
+            error_code = e.code
+            if error_code == 401:
+                logger.error(
+                    f"[ERROR] Cloudflare authentication failed (401 Unauthorized)\n"
+                    f"   -> Check BOT_AUTH_TOKEN in Cloudflare worker settings\n"
+                    f"   -> Verify auth_token in config.json matches"
+                )
+            elif error_code == 404:
+                logger.error(
+                    f"[ERROR] Cloudflare worker not found (404)\n"
+                    f"   -> Check worker_url in config.json\n"
+                    f"   -> Verify worker is deployed at: {self.cloudflare.worker_url}"
+                )
             else:
-                logger.error(f"Cloudflare HTTP error {e.code}: {e.reason}")
-
+                logger.error(f"[ERROR] Cloudflare HTTP error {error_code}: {e.reason}")
+            
             if not self.cloudflare.fallback_to_local:
-                logger.critical("Cloudflare unreachable and fallback disabled — bot cannot start")
+                logger.critical("[FATAL] Cloudflare unreachable and fallback disabled. Bot cannot start.")
                 sys.exit(1)
-
-            logger.warning("Falling back to local config")
+            
+            logger.warning("[WARN] Using local config as fallback since Cloudflare is unreachable")
             return False
-
+        
         except urllib.error.URLError as e:
-            logger.error(f"Cloudflare unreachable: {e.reason}")
-
+            logger.error(f"[ERROR] Cloudflare unreachable: {e.reason}")
+            
             if not self.cloudflare.fallback_to_local:
-                logger.critical("Cloudflare unreachable and fallback disabled — bot cannot start")
+                logger.critical(
+                    "[FATAL] Cloudflare unreachable and fallback disabled.\n"
+                    f"   -> Network error: {e.reason}\n"
+                    f"   -> Bot cannot start without API keys"
+                )
                 sys.exit(1)
-
-            logger.warning("Falling back to local config")
+            
+            logger.warning("[WARN] Falling back to local configuration")
             return False
-
+        
         except json.JSONDecodeError as e:
-            logger.error(f"Cloudflare returned invalid JSON: {e}")
-
+            logger.error(f"🔴 Cloudflare returned invalid JSON: {e}")
+            
             if not self.cloudflare.fallback_to_local:
-                logger.critical("Cloudflare response invalid and fallback disabled — bot cannot start")
+                logger.critical("⚠️ FATAL: Cloudflare response invalid and fallback disabled")
                 sys.exit(1)
-
+            
             return False
-
+        
         except Exception as e:
-            logger.error(f"Unexpected error fetching from Cloudflare: {e}")
-
+            logger.error(f"🔴 Error fetching from Cloudflare: {e}")
+            
             if not self.cloudflare.fallback_to_local:
-                logger.critical("Could not fetch from Cloudflare and fallback disabled — bot cannot start")
+                logger.critical("⚠️ FATAL: Could not fetch from Cloudflare and fallback disabled")
                 sys.exit(1)
-
+            
             return False
     
     def save_config(self) -> bool:
@@ -350,7 +367,7 @@ class ConfigManager:
             with open(config_file, 'w') as f:
                 json.dump(config_data, f, indent=2)
             
-            logger.info(f"Configuration saved to {config_file}")
+            logger.info(f"[OK] Configuration saved to {config_file}")
             return True
         
         except Exception as e:
@@ -403,9 +420,9 @@ class ConfigManager:
             with open(config_file, 'w') as f:
                 json.dump(default_config, f, indent=2)
             
-            logger.info(f"Default configuration created at {config_file}")
-            print(f"\nIMPORTANT: Edit {config_file} with your Telegram API credentials.")
-            print("  Get API credentials from: https://my.telegram.org/apps")
+            logger.info(f"[OK] Default configuration created at {config_file}")
+            print(f"\n⚠️  IMPORTANT: Edit {config_file} with your Telegram API credentials!")
+            print("   You can get API credentials from: https://my.telegram.org/apps")
             return True
         
         except Exception as e:
@@ -430,10 +447,10 @@ class ConfigManager:
         
         if errors:
             for error in errors:
-                logger.error(f"Configuration error: {error}")
+                logger.error(f"[ERROR] Configuration error: {error}")
             return False
-
-        logger.info("Configuration validation passed")
+        
+        logger.info("[OK] Configuration validation passed")
         return True
 
 
@@ -456,7 +473,7 @@ if __name__ == "__main__":
     success = config.create_default_config()
     
     if success:
-        print("\nConfiguration template created.")
+        print("\n[OK] Configuration template created!")
         print("  Edit config/config.json with your credentials and run the app again.")
     else:
-        print("\nFailed to create configuration")
+        print("\n[ERROR] Failed to create configuration")
