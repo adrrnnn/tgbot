@@ -16,9 +16,11 @@ from src.handlers.ai_reply_handler import AIReplyHandler
 
 logger = logging.getLogger(__name__)
 
-# Fix for Windows console encoding with emojis
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
+
+_MAX_RETRIES = 5
+_RETRY_BASE_DELAY = 5  # seconds; doubles each attempt (5, 10, 20, 40, 80)
 
 _verification_callback: Optional[Callable[[], Optional[str]]] = None
 _original_input = builtins.input
@@ -99,8 +101,8 @@ class TelegramBotServer:
         except asyncio.CancelledError:
             return False
         except Exception as e:
-            logger.error(f"Error starting bot: {e}", exc_info=True)
-            return False
+            logger.error(f"Bot error: {e}", exc_info=True)
+            raise  # let run_bot_async decide whether to retry
 
     def _validate_credentials(self) -> bool:
         t = self.config.telegram
@@ -140,15 +142,61 @@ async def run_bot_async(
     warning_callback=None,
     stop_event=None,
 ) -> bool:
-    """Run the bot server. Returns True on clean exit."""
-    server = TelegramBotServer(db, config, warning_callback=warning_callback, stop_event=stop_event)
-    try:
-        return await server.start(verify_only=verify_only)
-    except KeyboardInterrupt:
-        logger.info("Bot interrupted by user")
-        return False
-    except Exception as e:
-        logger.error(f"Bot error: {e}", exc_info=True)
-        return False
-    finally:
-        await server.stop()
+    """
+    Run the bot with automatic reconnection on failure.
+
+    On a clean stop (stop_event set) or verify_only run, exits immediately.
+    On unexpected disconnects, retries up to _MAX_RETRIES times with
+    exponential backoff before giving up.
+    """
+    if verify_only:
+        server = TelegramBotServer(db, config, warning_callback=warning_callback, stop_event=stop_event)
+        try:
+            return await server.start(verify_only=True)
+        except Exception as e:
+            logger.error(f"Verification failed: {e}")
+            return False
+        finally:
+            await server.stop()
+
+    attempt = 0
+    while attempt < _MAX_RETRIES:
+        # Check stop before each attempt
+        if stop_event and stop_event.is_set():
+            logger.info("Stop requested before reconnect attempt")
+            return True
+
+        if attempt > 0:
+            delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
+            logger.warning(f"Reconnecting in {delay}s (attempt {attempt}/{_MAX_RETRIES})")
+            # Wait for the delay but bail early if stop is requested
+            for _ in range(delay):
+                if stop_event and stop_event.is_set():
+                    return True
+                await asyncio.sleep(1)
+
+        server = TelegramBotServer(db, config, warning_callback=warning_callback, stop_event=stop_event)
+        try:
+            await server.start(verify_only=False)
+
+            # If we get here the bot ran and stopped cleanly (stop_event was set)
+            return True
+
+        except KeyboardInterrupt:
+            logger.info("Bot interrupted by user")
+            return False
+
+        except Exception as e:
+            logger.error(f"Bot disconnected: {e}")
+            attempt += 1
+
+        finally:
+            await server.stop()
+
+    logger.error(f"Bot failed to stay connected after {_MAX_RETRIES} attempts — giving up")
+    if warning_callback:
+        warning_callback(
+            f"Bot lost connection and could not reconnect after {_MAX_RETRIES} attempts.\n"
+            "Check your internet connection and restart the bot."
+        )
+    return False
